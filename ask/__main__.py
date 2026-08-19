@@ -17,6 +17,9 @@ import os
 # JS twin: import { runCommand } from "./executor".
 from .executor import run_command
 
+# Import the provider box so we can ask Gemini for commands.
+from .provider import generate_command
+
 
 def main():
     # Our OWN memory of the current folder. We track it ourselves because each
@@ -46,10 +49,38 @@ def main():
 
         elif user_input.startswith("/ask "):
             # Anything starting with "/ask " is a request for the AI.
-            # user_input[5:] means "the string from index 5 onward" — it
-            # slices off the "/ask " prefix. (Like JS user_input.slice(5).)
+            # user_input[5:] slices off the "/ask " prefix (JS: .slice(5)).
             question = user_input[5:]
-            print(f"[would ask AI]: {question}")
+
+            # Ask Gemini for a command. A network call can fail, so we wrap it
+            # in try/except (Python's version of JS try/catch) — this way one
+            # bad call prints an error but does NOT crash the whole session.
+            try:
+                suggestion = generate_command(question)
+            except Exception as error:
+                print(f"AI call failed: {error}")
+                continue
+
+            # suggestion is a dict: {"command", "explanation", "risk"}.
+            command = suggestion["command"]
+            explanation = suggestion["explanation"]
+            risk = suggestion["risk"]
+
+            # Show the suggested command, what it does, and how risky it is.
+            print(f"\n  {command}")
+            print(f"  ↳ {explanation}")
+            print(f"  risk: {risk}\n")
+
+            # The safety gate: nothing AI-written runs until YOU press Enter.
+            confirm = input("Run it? [Enter = yes, anything else = no] ").strip()
+            if confirm == "":
+                result = run_command(command, cwd=current_folder)
+                if result.stdout:
+                    print(result.stdout, end="")
+                if result.stderr:
+                    print(result.stderr, end="")
+            else:
+                print("Skipped.")
 
         elif user_input == "/debug":
             # User wants to fix the last failed command.
