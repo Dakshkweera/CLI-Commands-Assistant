@@ -29,6 +29,18 @@ from .storage import save_last_folder
 # Import the startup check — verifies the API key is set.
 from .config import check_config
 
+# rich gives us colored terminal output. One shared Console for the whole app.
+from rich.console import Console
+
+console = Console()
+
+# Icon + color for each risk level, so the danger is obvious at a glance.
+RISK_STYLES = {
+    "low": ("🟢", "green"),
+    "medium": ("🟡", "yellow"),
+    "high": ("🔴", "red"),
+}
+
 
 def run_and_record(command, memory, current_folder):
     """Run a command, show its output, and record the turn in the notebook.
@@ -55,6 +67,9 @@ def change_folder(current_folder, command):
     """
     # Everything after "cd" is the target path.
     target = command[2:].strip()
+    # Strip surrounding quotes — the AI (correctly) quotes paths that contain
+    # spaces, e.g. cd "Road to AI Engineer". We need the bare path without them.
+    target = target.strip("\"'")
     # Build an absolute path relative to where we are now (handles "..", etc.).
     new_folder = os.path.abspath(os.path.join(current_folder, target))
     if os.path.isdir(new_folder):
@@ -84,10 +99,15 @@ def suggest_and_run(request, memory, current_folder):
     explanation = suggestion["explanation"]
     risk = suggestion["risk"]
 
-    # Show the suggested command, what it does, and how risky it is.
-    print(f"\n  {command}")
-    print(f"  ↳ {explanation}")
-    print(f"  risk: {risk}\n")
+    # Show the suggested command, what it does, and how risky it is — in color.
+    # markup=False / highlight=False print the command and explanation literally,
+    # so brackets in a command aren't mistaken for rich formatting codes.
+    icon, color = RISK_STYLES.get(risk, ("•", "white"))
+    console.print()
+    console.print(f"  {command}", style="bold cyan", markup=False, highlight=False)
+    console.print(f"  ↳ {explanation}", style="dim", markup=False, highlight=False)
+    console.print(f"  risk: {icon} [{color}]{risk}[/{color}]")
+    console.print()
 
     # Safety gate: nothing AI-written runs until you confirm (Enter / y / yes).
     confirm = input("Run it? [Enter/y = yes, anything else = no] ").strip().lower()

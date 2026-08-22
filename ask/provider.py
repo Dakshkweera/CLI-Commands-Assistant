@@ -11,12 +11,17 @@ returns the result. (Boxes return data; the CLI does the I/O.)
 """
 
 import json
+import logging
 import platform
 
 from google import genai
 from google.genai import types
 
 from .config import API_KEY, MODEL
+
+# The SDK logs a harmless "automatic function calling (AFC)" notice on every
+# call. Silence it so our output stays clean.
+logging.getLogger("google_genai").setLevel(logging.ERROR)
 
 # The Gemini client is created LAZILY — on first use, not at import time.
 # Why: importing this module shouldn't need the key. That lets main() run
