@@ -20,9 +20,9 @@ load_dotenv()
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Which Gemini model to use. "flash" is fast and has a generous free tier.
-# We use 2.5-flash because your API key's model list confirmed it's available.
+# Google told us (via a 404) that new keys must use 3.6-flash, not 2.5-flash.
 # It's just a string — swap it here if you ever want a different model.
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.6-flash"
 
 
 def check_config():

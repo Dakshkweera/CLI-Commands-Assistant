@@ -20,12 +20,35 @@ from .executor import run_command
 # Import the provider box so we can ask Gemini for commands.
 from .provider import generate_command
 
+# Import the memory box — the session notebook that records every command.
+from .memory import Memory
+
+
+def run_and_record(command, memory, current_folder):
+    """Run a command, show its output, and record the turn in the notebook.
+
+    We use this in TWO places (raw commands and /ask), so putting it here keeps
+    us from repeating the same run-print-record code twice (DRY).
+    """
+    result = run_command(command, cwd=current_folder)
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="")
+    # Save what happened so /debug and /ask context can use it later.
+    memory.record(command, result.stdout, result.stderr, result.returncode)
+    return result
+
 
 def main():
     # Our OWN memory of the current folder. We track it ourselves because each
     # command runs in a fresh helper that forgets it. os.getcwd() = "get current
     # working directory" — where we launched from (JS: process.cwd()).
     current_folder = os.getcwd()
+
+    # Create the session notebook. It records every command we run this session
+    # so /debug can look back at what failed. Empty now, fills as we go.
+    memory = Memory()
 
     # The main loop. `while True:` runs forever until we `break` out of it.
     while True:
@@ -73,12 +96,8 @@ def main():
 
             # The safety gate: nothing AI-written runs until YOU press Enter.
             confirm = input("Run it? [Enter = yes, anything else = no] ").strip()
-            if confirm == "":
-                result = run_command(command, cwd=current_folder)
-                if result.stdout:
-                    print(result.stdout, end="")
-                if result.stderr:
-                    print(result.stderr, end="")
+            if confirm == "" or confirm.lower() == "yes":
+                run_and_record(command, memory, current_folder)
             else:
                 print("Skipped.")
 
@@ -107,17 +126,9 @@ def main():
                 print(f"cd: no such folder: {target}")
 
         else:
-            # Anything else is a raw command. Run it through the executor box,
-            # telling it to run IN our tracked folder (cwd=current_folder).
-            result = run_command(user_input, cwd=current_folder)
-
-            # An empty string is "falsy" in Python, so `if result.stdout:`
-            # means "if there was any output". end="" stops print from adding
-            # an extra blank line (the captured output already ends in a newline).
-            if result.stdout:
-                print(result.stdout, end="")
-            if result.stderr:
-                print(result.stderr, end="")
+            # Anything else is a raw command. Run it (in our tracked folder),
+            # show its output, and record it in the notebook — all via the helper.
+            run_and_record(user_input, memory, current_folder)
 
 
 # The standard Python entry point.
