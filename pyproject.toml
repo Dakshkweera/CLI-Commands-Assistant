@@ -1,0 +1,22 @@
+# pyproject.toml — tells Python how to install this project as a package.
+# Once installed, `python -m ask` works from ANY folder (not just this one).
+# This is like package.json's role in defining an installable Node package.
+
+[project]
+name = "ask"
+version = "0.1.0"
+description = "A self-correcting terminal command assistant"
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai",
+    "python-dotenv",
+    "rich",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+# Tell setuptools our code lives in the `ask` package (the ask/ folder).
+[tool.setuptools]
+packages = ["ask"]

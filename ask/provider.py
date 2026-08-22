@@ -18,9 +18,22 @@ from google.genai import types
 
 from .config import API_KEY, MODEL
 
-# Create the Gemini client ONCE, using our key. This object is our door to the
-# API — we make it here and reuse it for every call (creating it is expensive).
-client = genai.Client(api_key=API_KEY)
+# The Gemini client is created LAZILY — on first use, not at import time.
+# Why: importing this module shouldn't need the key. That lets main() run
+# config.check_config() first and give a friendly error if the key is missing.
+_client = None
+
+
+def get_client():
+    """Return the Gemini client, creating it once on first use.
+
+    `global _client` lets us update the module-level _client from inside this
+    function (otherwise Python treats it as a new local variable).
+    """
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=API_KEY)
+    return _client
 
 
 def build_system_prompt():
@@ -33,6 +46,8 @@ def build_system_prompt():
         "PowerShell shell.\n"
         "The user describes a task in plain English. Reply with ONE command "
         "that accomplishes it in PowerShell.\n"
+        "To change directory, ALWAYS use `cd <path>` (never Set-Location), so "
+        "the tool can track the folder.\n"
         "Also rate how dangerous the command is:\n"
         "  low    = read-only / harmless (e.g. --version, Get-*, ls)\n"
         "  medium = changes files in the current project/folder\n"
@@ -62,7 +77,7 @@ def generate_command(request, history=""):
     else:
         contents = request
 
-    response = client.models.generate_content(
+    response = get_client().models.generate_content(
         model=MODEL,
         contents=contents,
         config=types.GenerateContentConfig(

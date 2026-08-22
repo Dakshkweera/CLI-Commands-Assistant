@@ -23,6 +23,12 @@ from .provider import generate_command
 # Import the memory box — the session notebook that records every command.
 from .memory import Memory
 
+# Import the storage box — saves the folder we end in, for the shell wrapper.
+from .storage import save_last_folder
+
+# Import the startup check — verifies the API key is set.
+from .config import check_config
+
 
 def run_and_record(command, memory, current_folder):
     """Run a command, show its output, and record the turn in the notebook.
@@ -40,6 +46,23 @@ def run_and_record(command, memory, current_folder):
     return result
 
 
+def change_folder(current_folder, command):
+    """Handle a `cd ...` command by returning the NEW folder to track.
+
+    Used for BOTH user-typed `cd` and AI-suggested `cd`, so a folder change is
+    tracked no matter who wrote the command. Returns the new folder if it
+    exists; otherwise prints an error and returns the folder unchanged.
+    """
+    # Everything after "cd" is the target path.
+    target = command[2:].strip()
+    # Build an absolute path relative to where we are now (handles "..", etc.).
+    new_folder = os.path.abspath(os.path.join(current_folder, target))
+    if os.path.isdir(new_folder):
+        return new_folder
+    print(f"cd: no such folder: {target}")
+    return current_folder
+
+
 def suggest_and_run(request, memory, current_folder):
     """Ask the AI for a command, show it + its risk, and run it on confirm.
 
@@ -48,11 +71,13 @@ def suggest_and_run(request, memory, current_folder):
     """
     # Ask Gemini, giving it recent history for context. Wrap in try/except so a
     # failed network call prints an error but does NOT crash the session.
+    # We return current_folder so the caller can update its variable — the AI's
+    # command might be a `cd`, which changes the folder.
     try:
         suggestion = generate_command(request, memory.format_recent())
     except Exception as error:
         print(f"AI call failed: {error}")
-        return
+        return current_folder
 
     # suggestion is a dict: {"command", "explanation", "risk"}.
     command = suggestion["command"]
@@ -66,16 +91,29 @@ def suggest_and_run(request, memory, current_folder):
 
     # Safety gate: nothing AI-written runs until you confirm (Enter / y / yes).
     confirm = input("Run it? [Enter/y = yes, anything else = no] ").strip().lower()
-    if confirm in ("", "y", "yes"):
-        run_and_record(command, memory, current_folder)
-    else:
+    if confirm not in ("", "y", "yes"):
         print("Skipped.")
+        return current_folder
+
+    # If the AI's command is a folder change, route it through our folder
+    # tracking (same as a user-typed cd) so the prompt actually moves.
+    if command == "cd" or command.startswith("cd "):
+        return change_folder(current_folder, command)
+
+    # Otherwise it's a normal command: run + record it. Folder is unchanged.
+    run_and_record(command, memory, current_folder)
+    return current_folder
 
 
 def main():
+    # Fail fast with a friendly message if the API key isn't set, instead of a
+    # confusing crash later when we first try to call Gemini.
+    check_config()
+
     # Our OWN memory of the current folder. We track it ourselves because each
-    # command runs in a fresh helper that forgets it. os.getcwd() = "get current
-    # working directory" — where we launched from (JS: process.cwd()).
+    # command runs in a fresh helper that forgets it.
+    # Start in the folder the terminal is CURRENTLY in (where you launched from).
+    # os.getcwd() = "get current working directory" (JS: process.cwd()).
     current_folder = os.getcwd()
 
     # Create the session notebook. It records every command we run this session
@@ -93,7 +131,9 @@ def main():
         # ---- The dispatcher: decide what kind of input this is ----
 
         if user_input == "/exit":
-            # User wants to quit: say bye and leave the loop.
+            # Write the folder we ended in, so the shell wrapper can cd the real
+            # terminal here after we quit (a program can't cd its parent itself).
+            save_last_folder(current_folder)
             print("bye!")
             break
 
@@ -106,7 +146,7 @@ def main():
             # A request for the AI. Slice off "/ask " to get the question,
             # then hand it to the shared suggest-and-run helper.
             question = user_input[5:]
-            suggest_and_run(question, memory, current_folder)
+            current_folder = suggest_and_run(question, memory, current_folder)
 
         elif user_input == "/debug" or user_input.startswith("/debug "):
             # Optional extra context, e.g. "/debug it's a node project".
@@ -130,28 +170,14 @@ def main():
                 request += f"\nExtra context from the user: {hint}"
 
             # Same helper as /ask: get a suggestion (with history), show it,
-            # and run it on confirm.
-            suggest_and_run(request, memory, current_folder)
+            # and run it on confirm. Returns the (possibly changed) folder.
+            current_folder = suggest_and_run(request, memory, current_folder)
 
         elif user_input == "cd" or user_input.startswith("cd "):
             # `cd` is SPECIAL: it changes the folder, and that change must
-            # persist across future commands. If we ran it in a fresh helper,
-            # the change would die with that helper. So we intercept `cd` and
-            # update our OWN folder variable instead of running it.
-
-            # Grab whatever was typed after "cd" (everything from index 2 on).
-            target = user_input[2:].strip()
-
-            # Build the new absolute path relative to where we are now.
-            # os.path.join glues them; os.path.abspath resolves ".." and cleans
-            # it up. If `target` is already absolute, join returns it as-is.
-            new_folder = os.path.abspath(os.path.join(current_folder, target))
-
-            # Only switch if that folder really exists (like a real `cd` does).
-            if os.path.isdir(new_folder):
-                current_folder = new_folder
-            else:
-                print(f"cd: no such folder: {target}")
+            # persist. We intercept it and update our folder variable via the
+            # shared change_folder helper (no subprocess needed).
+            current_folder = change_folder(current_folder, user_input)
 
         else:
             # Anything else is a raw command. Run it (in our tracked folder),
