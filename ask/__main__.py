@@ -40,6 +40,38 @@ def run_and_record(command, memory, current_folder):
     return result
 
 
+def suggest_and_run(request, memory, current_folder):
+    """Ask the AI for a command, show it + its risk, and run it on confirm.
+
+    Shared by /ask and /debug — both do the same show-confirm-run dance, so we
+    write it once here (DRY).
+    """
+    # Ask Gemini, giving it recent history for context. Wrap in try/except so a
+    # failed network call prints an error but does NOT crash the session.
+    try:
+        suggestion = generate_command(request, memory.format_recent())
+    except Exception as error:
+        print(f"AI call failed: {error}")
+        return
+
+    # suggestion is a dict: {"command", "explanation", "risk"}.
+    command = suggestion["command"]
+    explanation = suggestion["explanation"]
+    risk = suggestion["risk"]
+
+    # Show the suggested command, what it does, and how risky it is.
+    print(f"\n  {command}")
+    print(f"  ↳ {explanation}")
+    print(f"  risk: {risk}\n")
+
+    # Safety gate: nothing AI-written runs until you confirm (Enter / y / yes).
+    confirm = input("Run it? [Enter/y = yes, anything else = no] ").strip().lower()
+    if confirm in ("", "y", "yes"):
+        run_and_record(command, memory, current_folder)
+    else:
+        print("Skipped.")
+
+
 def main():
     # Our OWN memory of the current folder. We track it ourselves because each
     # command runs in a fresh helper that forgets it. os.getcwd() = "get current
@@ -71,39 +103,35 @@ def main():
             continue
 
         elif user_input.startswith("/ask "):
-            # Anything starting with "/ask " is a request for the AI.
-            # user_input[5:] slices off the "/ask " prefix (JS: .slice(5)).
+            # A request for the AI. Slice off "/ask " to get the question,
+            # then hand it to the shared suggest-and-run helper.
             question = user_input[5:]
+            suggest_and_run(question, memory, current_folder)
 
-            # Ask Gemini for a command. A network call can fail, so we wrap it
-            # in try/except (Python's version of JS try/catch) — this way one
-            # bad call prints an error but does NOT crash the whole session.
-            try:
-                suggestion = generate_command(question)
-            except Exception as error:
-                print(f"AI call failed: {error}")
+        elif user_input == "/debug" or user_input.startswith("/debug "):
+            # Optional extra context, e.g. "/debug it's a node project".
+            # [6:] is everything after "/debug"; strip() cleans spaces.
+            hint = user_input[6:].strip()
+
+            # Find the most recent FAILED command to fix (from the notebook).
+            failure = memory.last_failure()
+            if failure is None:
+                print("Nothing to debug — no failed command yet.")
                 continue
 
-            # suggestion is a dict: {"command", "explanation", "risk"}.
-            command = suggestion["command"]
-            explanation = suggestion["explanation"]
-            risk = suggestion["risk"]
+            # Build a "fix this" request from the failed command + its error.
+            request = (
+                f"The command `{failure['command']}` failed with this error:\n"
+                f"{failure['error']}\n"
+                "Give a corrected command for the same goal."
+            )
+            # If the user added a hint, include it to steer the AI.
+            if hint:
+                request += f"\nExtra context from the user: {hint}"
 
-            # Show the suggested command, what it does, and how risky it is.
-            print(f"\n  {command}")
-            print(f"  ↳ {explanation}")
-            print(f"  risk: {risk}\n")
-
-            # The safety gate: nothing AI-written runs until YOU press Enter.
-            confirm = input("Run it? [Enter = yes, anything else = no] ").strip()
-            if confirm == "" or confirm.lower() == "yes":
-                run_and_record(command, memory, current_folder)
-            else:
-                print("Skipped.")
-
-        elif user_input == "/debug":
-            # User wants to fix the last failed command.
-            print("[would debug the last failure]")
+            # Same helper as /ask: get a suggestion (with history), show it,
+            # and run it on confirm.
+            suggest_and_run(request, memory, current_folder)
 
         elif user_input == "cd" or user_input.startswith("cd "):
             # `cd` is SPECIAL: it changes the folder, and that change must

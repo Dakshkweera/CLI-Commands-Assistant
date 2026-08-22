@@ -43,15 +43,28 @@ def build_system_prompt():
     )
 
 
-def generate_command(query):
+def generate_command(request, history=""):
     """
-    Ask Gemini for a command based on the user's plain-English `query`.
+    Ask Gemini for a command. Used by BOTH /ask and /debug (one function).
+
+    - request: what we want. For /ask it's the user's question ("list files");
+      for /debug it's a "this command failed with X, fix it" message.
+    - history: a short summary of recent commands (from memory.format_recent),
+      so the AI has context. Optional — empty by default.
+
     Returns a dict like:
         {"command": "...", "explanation": "...", "risk": "low"}
     """
+    # If we have recent history, put it BEFORE the request so the AI sees the
+    # context (e.g. what folder we're in, what just failed).
+    if history:
+        contents = f"Recent commands:\n{history}\n\nRequest: {request}"
+    else:
+        contents = request
+
     response = client.models.generate_content(
         model=MODEL,
-        contents=query,
+        contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=build_system_prompt(),
             # Force Gemini to return valid JSON instead of prose. Far more
