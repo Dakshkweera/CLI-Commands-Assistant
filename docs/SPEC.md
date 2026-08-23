@@ -36,6 +36,9 @@ assumption of shell fluency.
 | F8 | Command palette | Type `/` for a live dropdown of commands; **↑** recalls past commands |
 | F9 | Version reporting | `/version` shows nova's own version (read from the package metadata) |
 | F10 | Graceful failures | A dropped connection shows a friendly hint; unknown `/commands` never reach the shell |
+| F11 | First-run key setup | With no key, nova prompts you to paste your Gemini key (masked) and saves it to `~/.nova/credentials` — asked only once |
+| F12 | Key recovery | If the key is later rejected/expired, nova lets you paste a new one on the spot; a quota limit is explained (not mistaken for a bad key) |
+| F13 | Compound `cd` | `cd "X"; explorer .` moves the tracked folder **and** runs the rest in the new folder |
 
 ## 5. The command grammar
 

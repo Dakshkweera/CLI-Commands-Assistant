@@ -101,6 +101,17 @@ worth tracking and keeping.
 | D56 | `/version` reports nova's own version, read from the **installed package metadata** (single source of truth = `pyproject.toml`, never hardcoded twice) |
 | D57 | AI-call **network errors** are detected and shown as a friendly "can't reach the AI" line; genuine bugs still show their real error |
 
+## API key & distribution
+| # | Decision |
+|---|----------|
+| D58 | Key resolution order (first hit wins): **env var → `.env` → saved file** `~/.nova/credentials` |
+| D59 | **First-run onboarding** — with no key, nova prompts for one (masked), saves it, and asks only once. I/O lives in the CLI layer; Config/Storage stay quiet |
+| D60 | The Provider reads the key **at client-creation time**, not at import — so a key entered mid-session takes effect immediately |
+| D61 | **Runtime key recovery** — a rejected/expired key triggers a re-prompt (`reset_client()` rebuilds the client); a quota limit is explained, not treated as a bad key |
+| D62 | The key is stored **locally in plaintext** (like `~/.aws/credentials`) — acceptable for a personal key; `.env` stays git-ignored, `.env.example` ships only a placeholder |
+| D63 | **Compound `cd`** (`cd "X"; explorer .`) is split (quote-aware): peel the leading `cd`, then run the rest in the new folder |
+| D64 | Distributed as a **`pip`-installable package** with an **entry point** (`[project.scripts]`), so `pip install git+<repo>` gives a real `nova` command |
+
 ## Non-goals (scope)
 | # | Decision |
 |---|----------|

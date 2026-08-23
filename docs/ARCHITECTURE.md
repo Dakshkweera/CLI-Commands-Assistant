@@ -17,8 +17,8 @@ responsibility.
 | **Memory** | Store every turn; build the small "note" of context for the AI | You change how much history to keep/send |
 | **AI / Provider** | Talk to Gemini: generate a command, generate a fix, assign a risk score | You switch AI provider |
 | **Executor** | Run a command, capture its output + exit code | You change how/where commands run |
-| **Storage** | On exit, write the folder we ended in (for the shell wrapper) | You change how folder hand-off works |
-| **Config** | Hold the API key, model name, and settings (history size, etc.) | You change how settings load |
+| **Storage** | Read/write small home-folder files: the exit folder (for the shell wrapper) and the saved API key (`~/.nova/credentials`) | You change how folder hand-off or key persistence works |
+| **Config** | Resolve the API key (env → `.env` → saved file) and hold the model name/settings | You change how settings/key load |
 
 ### Dependency direction
 
@@ -127,6 +127,10 @@ command history is not.
    parameter (`subprocess.run(cmd, cwd=current_folder)` — same as Node's
    `exec(cmd, { cwd })`).
 3. `cd` is **intercepted**: no helper is spawned; we just update the variable.
+   A **compound** command like `cd "X"; explorer .` is split — we peel the
+   leading `cd` (updating the variable), then run the rest in the new folder.
+   The split is quote-aware, so a `;` inside a quoted path isn't mistaken for a
+   separator.
 4. The prompt is built from the variable (`nova C:\project\sub>`), so it always
    shows the right folder.
 5. On `/exit`, we write **only** the folder (one line to a small file,
@@ -146,12 +150,32 @@ PowerShell function. So `nova` targets **Windows + PowerShell**. cmd and Git Bas
 can run the core tool (`python -m nova`) but get no `nova` shortcut and no
 folder-follow; Mac/Linux would need the executor + commands adapted.
 
-## Packaging — run from any folder
+## Packaging & distribution — run from any folder
 `python -m nova` only works when Python can find the `nova` package. We make it
-findable everywhere by installing the project as an **editable package**
-(`pip install -e .`, described by `pyproject.toml`) — the same idea as
-`npm link`. After that, the wrapper calls the venv's Python by absolute path, so
-`nova` works from any folder without activating the venv first.
+findable everywhere by installing the project as a package (described by
+`pyproject.toml`) — the same idea as `package.json`.
+
+- **For development:** `pip install -e .` (an editable install, like `npm link`)
+  — changes apply on the next run.
+- **For users:** an **entry point** (`[project.scripts]` → `nova = "nova.__main__:main"`)
+  makes `pip install` create a real `nova` command on the PATH. Distribution is
+  via GitHub — `pip install git+<repo>` clones, pulls the dependencies from PyPI,
+  builds, and installs the `nova` command.
+
+## API key & onboarding
+The key is resolved by `Config.get_api_key()` in this order (first hit wins):
+env var `GEMINI_API_KEY` → `.env` file → saved file `~/.nova/credentials`.
+
+If none is found (a fresh install), the CLI **prompts** for the key (masked),
+saves it via the Storage box, and sets it in the environment for the current
+run — so it's asked only once. The Provider reads the key **at client-creation
+time** (not at import), so a just-entered key takes effect immediately.
+
+If an AI call is later rejected, the CLI classifies the error: a **bad/expired
+key** triggers a re-prompt (and `reset_client()` rebuilds the AI client with the
+new key); a **quota** limit is explained rather than treated as a bad key; a
+**network** blip shows a friendly retry hint. I/O (prompting, printing) stays in
+the CLI layer — the Config/Storage/Provider boxes stay quiet and testable.
 
 ## The Risk Score
 
