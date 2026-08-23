@@ -75,11 +75,11 @@ package that runs from any folder.
 Requires **Python 3.10+** on **Windows** (with PowerShell). One command:
 
 ```powershell
-pip install git+https://github.com/YOUR-USERNAME/nova.git
+pip install git+https://github.com/Dakshkweera/Nova.git
 ```
 
 > Prefer isolated CLI installs? Use [`pipx`](https://pipx.pypa.io):
-> `pipx install git+https://github.com/YOUR-USERNAME/nova.git`
+> `pipx install git+https://github.com/Dakshkweera/Nova.git`
 
 That installs nova + its dependencies and creates a `nova` command.
 
@@ -126,7 +126,7 @@ Reload once with `. $PROFILE` (or open a new terminal).
 To work on nova from source (an editable install — changes apply on the next run):
 
 ```powershell
-git clone https://github.com/YOUR-USERNAME/nova.git
+git clone https://github.com/Dakshkweera/Nova.git
 cd nova
 python -m venv venv
 .\venv\Scripts\Activate.ps1
