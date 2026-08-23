@@ -167,6 +167,25 @@ commands you type yourself are **not** rated (you wrote them, you own them).
 The rating is judged from **the command text only** — not from history. This
 keeps it simple and cheap.
 
+## The input line (command palette)
+
+The CLI reads input through **`prompt_toolkit`** (a `PromptSession`) instead of a
+bare `input()`, which buys three things:
+
+- **A live `/command` dropdown.** A small `Completer` offers the known commands
+  (from a single `COMMANDS` dict) the moment you type `/`. Add a command to that
+  dict and it appears in the menu automatically — the menu is never hardcoded.
+- **Command history** — `↑` recalls earlier lines, because the one `PromptSession`
+  lives for the whole loop.
+- **A custom Enter key** — when the menu is open, Enter *accepts* the highlighted
+  item (and keeps editing) rather than submitting, so picking `/ask` lets you
+  keep typing your request.
+
+Two guards keep bad input from reaching the shell: a bare `/ask` (no request)
+prints a usage hint, and any unknown `/command` is caught with a message instead
+of being run as a raw command. Network failures during an AI call are detected
+and shown as a friendly "can't reach the AI" line rather than a raw error.
+
 ## Tech stack
 
 | Concern | Choice | Node.js equivalent (for reference) |
@@ -179,7 +198,7 @@ keeps it simple and cheap.
 | Load `.env` secrets | `python-dotenv` | `dotenv` |
 | Terminal colors | `rich` | `chalk` |
 | Run commands | `subprocess` → PowerShell (stdlib) | `child_process` |
-| Read input | `input()` (stdlib) | `readline` |
+| Read input | `prompt_toolkit` (dropdown menu + history) | `inquirer` / `readline` |
 
 ### Why no web framework and no async
 

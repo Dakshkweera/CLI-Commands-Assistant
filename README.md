@@ -37,15 +37,18 @@ results — it helps you get to a working command.
 | `cd <path>`         | Changes the tracked folder (intercepted, not run in a subprocess) |
 | `/ask <english>`    | AI writes a command → shows it + risk score → Enter runs |
 | `/debug [text]`     | AI fixes the last failure → shows it → Enter runs        |
+| `/version`          | Print nova's own version                                  |
 | `/exit`             | End the session (history discarded; the terminal lands in the folder you navigated to) |
 
 The session **auto-starts** when you launch `nova` — there is no `/start`. It
-begins in whatever folder your terminal is currently in.
+begins in whatever folder your terminal is currently in. **Type `/`** for a live
+dropdown of commands, and press **↑** to recall earlier commands.
 
 ## Tech stack
 
 - **Python 3.10+** (sync, no web framework, no async needed)
 - **Gemini API** (`google-genai` SDK), model **`gemini-3.6-flash`**
+- `prompt_toolkit` for the input line (command dropdown + history)
 - `python-dotenv` for the API key, `rich` for colored output
 - `subprocess` (stdlib) to run commands (via PowerShell)
 
@@ -58,8 +61,9 @@ See [`docs/`](docs) for the full specification:
 ## Status
 
 **Working.** All core features are built: raw commands, `cd` tracking (yours and
-the AI's), `/ask`, `/debug` (with history + optional hint), in-RAM session
-memory, colored risk scores, folder-follow-on-exit, and a `pip`-installable
+the AI's), `/ask`, `/debug` (with history + optional hint), `/version`, a live
+`/command` dropdown with ↑-history, in-RAM session memory, colored risk scores,
+friendly network-error handling, folder-follow-on-exit, and a `pip`-installable
 package that runs from any folder.
 
 > **Runs on Windows + PowerShell.** Commands are executed through PowerShell, and

@@ -91,6 +91,16 @@ worth tracking and keeping.
 | D31 | Goal: eventually **deploy it** and make it industry-standard |
 | D43 | Session/CLI depends on the core boxes; core boxes do not depend on the CLI (keeps them testable/swappable) |
 
+## Input & UX
+| # | Decision |
+|---|----------|
+| D52 | The input line uses **`prompt_toolkit`** (not bare `input()`): a live `/command` dropdown built from the `COMMANDS` dict, plus **↑** history from one long-lived session |
+| D53 | The dropdown menu is **data-driven** — add a command to `COMMANDS` and it appears automatically; the menu is never hardcoded |
+| D54 | **Enter accepts** a highlighted menu item (and keeps editing) instead of submitting, so picking `/ask` lets you keep typing the request |
+| D55 | **Guards** keep bad input off the shell: bare `/ask` prints a usage hint, and any unknown `/command` is caught with a message instead of being run raw |
+| D56 | `/version` reports nova's own version, read from the **installed package metadata** (single source of truth = `pyproject.toml`, never hardcoded twice) |
+| D57 | AI-call **network errors** are detected and shown as a friendly "can't reach the AI" line; genuine bugs still show their real error |
+
 ## Non-goals (scope)
 | # | Decision |
 |---|----------|

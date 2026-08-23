@@ -33,6 +33,9 @@ assumption of shell fluency.
 | F5 | Steerable debug | `/debug <text>` lets you add context if the AI guesses wrong |
 | F6 | Session memory | Every command (yours and the AI's) is recorded for the session |
 | F7 | Environment awareness | The AI is told it's on Windows/PowerShell so commands actually work |
+| F8 | Command palette | Type `/` for a live dropdown of commands; **↑** recalls past commands |
+| F9 | Version reporting | `/version` shows nova's own version (read from the package metadata) |
+| F10 | Graceful failures | A dropped connection shows a friendly hint; unknown `/commands` never reach the shell |
 
 ## 5. The command grammar
 
@@ -44,12 +47,15 @@ Default behaviour is a **normal shell**. The AI only wakes up on a `/` command.
 | `cd <path>`       | folder change| intercepted — updates the tracked folder (no subprocess)   |
 | `/ask <english>`  | request      | AI generates a command → show it + risk score → Enter runs |
 | `/debug [text]`   | fix request  | AI uses last command + error + history → show fix → Enter runs |
+| `/version`        | control      | print nova's own version (no shell command)                |
 | `/exit`           | control      | end the session; memory is discarded, exit folder is saved |
 
 Only `/ask` and `/debug` call the API. Everything else is free.
 
 The session **auto-starts** when you launch `nova` (no `/start` command) and
-begins in the terminal's current folder.
+begins in the terminal's current folder. Typing `/` opens a live dropdown of the
+commands above (arrow/Tab to pick, Enter to accept); an unrecognized `/command`
+is caught with a hint instead of being run as a shell command.
 
 ## 6. The two AI flows
 
