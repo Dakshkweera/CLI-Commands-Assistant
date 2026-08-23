@@ -70,33 +70,48 @@ package that runs from any folder.
 > the `nova` shortcut (with folder-follow) is a PowerShell function. It does not
 > run in cmd, Git Bash, or on Mac/Linux without changes.
 
-## Setup
+## Install
+
+Requires **Python 3.10+** on **Windows** (with PowerShell). One command:
 
 ```powershell
-# 1. Create + activate a virtual environment
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# 2. Install the project as an editable package (so `python -m nova` works anywhere)
-pip install -e .
+pip install git+https://github.com/YOUR-USERNAME/nova.git
 ```
 
-Put your Gemini API key (from https://aistudio.google.com/apikey) in a `.env`
-file at the project root:
+> Prefer isolated CLI installs? Use [`pipx`](https://pipx.pypa.io):
+> `pipx install git+https://github.com/YOUR-USERNAME/nova.git`
 
-```
-GEMINI_API_KEY=your-key-here
+That installs nova + its dependencies and creates a `nova` command.
+
+## First run — your API key
+
+Just run it:
+
+```powershell
+nova
 ```
 
-### The `nova` shortcut (folder-follow)
+On first run nova asks you to paste your **Gemini API key** (get one free at
+https://aistudio.google.com/apikey), then saves it to `~/.nova/credentials` so
+you're never asked again. If the key is later rejected or expired, nova lets you
+paste a new one on the spot.
+
+Two other ways to provide the key, if you prefer:
+- **Environment variable:** `setx GEMINI_API_KEY "your-key"` (then reopen the terminal)
+- **`.env` file:** copy `.env.example` to `.env` and fill in your key
+
+## Optional: folder-follow shortcut
 
 A program can't change the folder of the terminal that launched it, so to have
-the real terminal "land" in the folder you navigated to inside `nova`, add this
+the real terminal "land" in the folder you navigated to inside nova, add this
 function to your PowerShell profile (`notepad $PROFILE`):
 
 ```powershell
 function nova {
-    & "C:\path\to\CLI AI Assistant\venv\Scripts\python.exe" -m nova
+    # Call the installed nova.exe explicitly (not this function) to avoid recursion.
+    $exe = (Get-Command nova -CommandType Application -ErrorAction SilentlyContinue).Source
+    if (-not $exe) { Write-Host "nova isn't on PATH."; return }
+    & $exe
     if ($LASTEXITCODE -eq 0) {
         $dir = Get-Content "$HOME\.nova_last_folder" -ErrorAction SilentlyContinue
         if ($dir -and (Test-Path $dir)) { Set-Location $dir }
@@ -104,5 +119,19 @@ function nova {
 }
 ```
 
-Reload the profile once with `. $PROFILE` (or open a new terminal). Now just
-type `nova` from any PowerShell terminal.
+Reload once with `. $PROFILE` (or open a new terminal).
+
+## Develop / contribute
+
+To work on nova from source (an editable install — changes apply on the next run):
+
+```powershell
+git clone https://github.com/YOUR-USERNAME/nova.git
+cd nova
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -e .
+```
+
+Put your key in a `.env` at the project root (or use any method above), then run
+`python -m nova`.
