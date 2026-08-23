@@ -43,6 +43,14 @@ def get_client():
     return _client
 
 
+def reset_client():
+    """Drop the cached client so the next call rebuilds it with a fresh key.
+    Used after the user enters a NEW key (e.g. the old one was rejected), so the
+    new key actually takes effect instead of reusing the old client."""
+    global _client
+    _client = None
+
+
 def build_system_prompt():
     """
     The 'system prompt' tells Gemini who it is and what environment we're on,
@@ -53,8 +61,9 @@ def build_system_prompt():
         "PowerShell shell.\n"
         "The user describes a task in plain English. Reply with ONE command "
         "that accomplishes it in PowerShell.\n"
-        "To change directory, ALWAYS use `cd <path>` (never Set-Location), so "
-        "the tool can track the folder.\n"
+        "To change directory, ALWAYS use `cd <path>` (never Set-Location) so "
+        "the tool can track the folder; you may chain more commands after it "
+        'with `;`, e.g. `cd "My Folder"; explorer .`.\n'
         "Also rate how dangerous the command is:\n"
         "  low    = read-only / harmless (e.g. --version, Get-*, ls)\n"
         "  medium = changes files in the current project/folder\n"

@@ -22,8 +22,9 @@ from importlib.metadata import version as pkg_version, PackageNotFoundError
 # JS twin: import { runCommand } from "./executor".
 from .executor import run_command
 
-# Import the provider box so we can ask Gemini for commands.
-from .provider import generate_command
+# Import the provider box so we can ask Gemini for commands. reset_client lets
+# us rebuild the AI client after the user swaps in a new API key.
+from .provider import generate_command, reset_client
 
 # Import the memory box — the session notebook that records every command.
 from .memory import Memory
@@ -160,24 +161,69 @@ def run_and_record(command, memory, current_folder):
     return result
 
 
-def change_folder(current_folder, command):
-    """Handle a `cd ...` command by returning the NEW folder to track.
+def _split_leading_cd(command):
+    """Split a compound command into its leading `cd` part and the rest.
 
-    Used for BOTH user-typed `cd` and AI-suggested `cd`, so a folder change is
-    tracked no matter who wrote the command. Returns the new folder if it
-    exists; otherwise prints an error and returns the folder unchanged.
+    e.g. 'cd "System design"; explorer .'  ->  ('cd "System design"', 'explorer .')
+         'cd Docs && dir'                   ->  ('cd Docs', 'dir')
+         'cd Docs'                          ->  ('cd Docs', '')   (nothing after)
+
+    We scan for the first `;` or `&&` that is OUTSIDE quotes, so a separator
+    inside a quoted path (rare) isn't mistaken for the split point.
     """
-    # Everything after "cd" is the target path.
-    target = command[2:].strip()
-    # Strip surrounding quotes — the AI (correctly) quotes paths that contain
-    # spaces, e.g. cd "Road to AI Engineer". We need the bare path without them.
-    target = target.strip("\"'")
+    in_quote = None                       # which quote char we're inside, or None
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if in_quote:                      # inside quotes: only look for the closer
+            if ch == in_quote:
+                in_quote = None
+        elif ch in ("'", '"'):            # entering a quoted section
+            in_quote = ch
+        elif ch == ";":                   # top-level ';' → split here
+            return command[:i].strip(), command[i + 1:].strip()
+        elif ch == "&" and command[i:i + 2] == "&&":   # top-level '&&' → split
+            return command[:i].strip(), command[i + 2:].strip()
+        i += 1
+    return command.strip(), ""            # no separator: it's all the cd part
+
+
+def _resolve_cd(current_folder, cd_command):
+    """Work out the folder a `cd` command points to.
+
+    Returns (folder, ok): the new folder and whether it exists. On failure it
+    prints an error and returns the folder unchanged (ok=False).
+    """
+    # Everything after "cd" is the target path; strip surrounding quotes so a
+    # spaced path like cd "Road to AI Engineer" resolves to the bare path.
+    target = cd_command[2:].strip().strip("\"'")
+    if not target:                        # bare "cd" — nowhere to go, no-op
+        return current_folder, True
     # Build an absolute path relative to where we are now (handles "..", etc.).
     new_folder = os.path.abspath(os.path.join(current_folder, target))
     if os.path.isdir(new_folder):
-        return new_folder
+        return new_folder, True
     print(f"cd: no such folder: {target}")
-    return current_folder
+    return current_folder, False
+
+
+def run_cd_command(command, memory, current_folder):
+    """Handle any command that starts with `cd` — including a COMPOUND one like
+    `cd "System design"; explorer .`.
+
+    We peel off the leading `cd` (updating our tracked folder), then run whatever
+    remains IN that new folder. Used for both user-typed and AI-suggested cd, so
+    a folder change is tracked no matter who wrote it.
+    """
+    cd_part, rest = _split_leading_cd(command)
+    new_folder, ok = _resolve_cd(current_folder, cd_part)
+    if not ok:
+        # cd failed — don't run the rest in the wrong folder.
+        return current_folder
+    if rest:
+        # Run the remaining command(s) in the folder we just moved to.
+        run_and_record(rest, memory, new_folder)
+    return new_folder
 
 
 # Words that show up in the error when the problem is the NETWORK (offline,
@@ -194,6 +240,49 @@ def _looks_like_network_error(error):
     return any(hint in text for hint in _NETWORK_HINTS)
 
 
+# Words that mean the API KEY itself was rejected (wrong / expired / unauthorized).
+_BAD_KEY_HINTS = (
+    "api key not valid", "api_key_invalid", "invalid api key",
+    "api key expired", "key expired", "permission denied",
+    "permission_denied", "unauthenticated",
+)
+
+# Words that mean we hit the rate limit / free-tier QUOTA (not a bad key).
+_QUOTA_HINTS = ("resource_exhausted", "exhausted", "quota", "rate limit", "too many requests")
+
+
+def _looks_like_bad_key(error):
+    """True if the API key was rejected (invalid / expired / unauthorized)."""
+    text = str(error).lower()
+    if any(hint in text for hint in _BAD_KEY_HINTS):
+        return True
+    # google-genai errors carry the HTTP status in .code; 401/403 = auth problem.
+    return getattr(error, "code", None) in (401, 403)
+
+
+def _looks_like_quota(error):
+    """True if we hit the rate limit / free-tier quota."""
+    text = str(error).lower()
+    if any(hint in text for hint in _QUOTA_HINTS):
+        return True
+    return getattr(error, "code", None) == 429
+
+
+def _prompt_and_save_key(label):
+    """Ask for an API key (masked), save it, and make it active immediately.
+
+    Shared by first-run setup and the "your key was rejected" recovery flow.
+    Returns the key, or None if the user entered nothing.
+    """
+    key = prompt(f"  {label}: ", is_password=True).strip()
+    if not key:
+        return None
+    save_api_key(key)                    # remember it for next time
+    os.environ["GEMINI_API_KEY"] = key   # use it right now, this session
+    reset_client()                       # rebuild the AI client with the new key
+    return key
+
+
 def suggest_and_run(request, memory, current_folder):
     """Ask the AI for a command, show it + its risk, and run it on confirm.
 
@@ -207,10 +296,23 @@ def suggest_and_run(request, memory, current_folder):
     try:
         suggestion = generate_command(request, memory.format_recent())
     except Exception as error:
-        # A dropped connection shouldn't look like a scary crash. If it's a
-        # network problem, say so in plain words; otherwise show the real error.
+        # Turn scary raw errors into plain-language help. Order matters:
+        # check the specific causes first, fall back to the raw error last.
         if _looks_like_network_error(error):
             print("🌐 Can't reach the AI — check your internet connection and try again.")
+        elif _looks_like_bad_key(error):
+            # The key is wrong/expired — let them fix it right here, no restart.
+            print("🔑 Your API key was rejected (invalid or expired).")
+            if _prompt_and_save_key("Paste a new Gemini API key") is not None:
+                print("✓ Saved. Run your command again.")
+        elif _looks_like_quota(error):
+            # A rate limit isn't a bad key — a new key from the SAME account
+            # won't help, so we say so instead of asking them to re-enter it.
+            print("⏳ You've hit the Gemini free-tier limit for now.")
+            print("   A new key from the SAME Google account won't help — the limit is per account.")
+            print("   Wait a bit and try again, or paste a key from a DIFFERENT account (Enter to skip):")
+            if _prompt_and_save_key("New key") is not None:
+                print("✓ Saved. Run your command again.")
         else:
             print(f"AI call failed: {error}")
         return current_folder
@@ -236,10 +338,11 @@ def suggest_and_run(request, memory, current_folder):
         print("Skipped.")
         return current_folder
 
-    # If the AI's command is a folder change, route it through our folder
-    # tracking (same as a user-typed cd) so the prompt actually moves.
+    # If the AI's command is (or starts with) a folder change, route it through
+    # our cd handler so the prompt moves — and any chained command (e.g.
+    # `cd "X"; explorer .`) runs in the new folder.
     if command == "cd" or command.startswith("cd "):
-        return change_folder(current_folder, command)
+        return run_cd_command(command, memory, current_folder)
 
     # Otherwise it's a normal command: run + record it. Folder is unchanged.
     run_and_record(command, memory, current_folder)
@@ -262,13 +365,9 @@ def ensure_api_key():
         "(free at https://aistudio.google.com/apikey):",
         style="dim",
     )
-    # is_password=True masks the key as you paste it, so it isn't left on screen.
-    key = prompt("  key> ", is_password=True).strip()
-    if not key:
+    # Shared helper prompts (masked), saves, and activates the key.
+    if _prompt_and_save_key("key>") is None:
         raise SystemExit("No key entered — run nova again when you have one.")
-
-    save_api_key(key)                    # remember it for next time
-    os.environ["GEMINI_API_KEY"] = key   # ...and use it right now, this session
     console.print("✓ Saved to ~/.nova/credentials. You're all set.\n", style="green")
 
 
@@ -378,9 +477,9 @@ def main():
 
         elif user_input == "cd" or user_input.startswith("cd "):
             # `cd` is SPECIAL: it changes the folder, and that change must
-            # persist. We intercept it and update our folder variable via the
-            # shared change_folder helper (no subprocess needed).
-            current_folder = change_folder(current_folder, user_input)
+            # persist. We intercept it (a plain cd runs no subprocess); a
+            # compound cd like `cd X; dir` also runs its tail in the new folder.
+            current_folder = run_cd_command(user_input, memory, current_folder)
 
         elif user_input.startswith("/"):
             # A leading slash means "a nova command" — but this isn't one we
