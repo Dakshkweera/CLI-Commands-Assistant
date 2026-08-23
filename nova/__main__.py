@@ -28,11 +28,12 @@ from .provider import generate_command
 # Import the memory box — the session notebook that records every command.
 from .memory import Memory
 
-# Import the storage box — saves the folder we end in, for the shell wrapper.
-from .storage import save_last_folder
+# Import the storage box — saves the folder we end in (for the shell wrapper)
+# and the API key (so the user enters it only once).
+from .storage import save_last_folder, save_api_key
 
-# Import the startup check — verifies the API key is set.
-from .config import check_config
+# Import the key resolver — finds the API key (env / .env / saved file).
+from .config import get_api_key
 
 # rich gives us colored terminal output. One shared Console for the whole app.
 from rich.console import Console
@@ -42,7 +43,7 @@ from rich.console import Console
 # - PromptSession: one long-lived reader that remembers history for the session.
 # - Completer/Completion: how we tell it what to suggest (the /command menu).
 # - FormattedText: a colored prompt string (list of (style, text) pieces).
-from prompt_toolkit import PromptSession
+from prompt_toolkit import PromptSession, prompt
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
@@ -245,10 +246,36 @@ def suggest_and_run(request, memory, current_folder):
     return current_folder
 
 
+def ensure_api_key():
+    """Make sure we have a Gemini API key.
+
+    On first run (no key found anywhere) this asks the user to paste one and
+    saves it to ~/.nova/credentials, so they never have to enter it again.
+    """
+    if get_api_key():
+        return  # already have one (env var, .env, or the saved file)
+
+    # First run — welcome the user and ask for their key.
+    console.print("\nWelcome to nova! 🌟", style="bold magenta")
+    console.print(
+        "Paste your Gemini API key to get started "
+        "(free at https://aistudio.google.com/apikey):",
+        style="dim",
+    )
+    # is_password=True masks the key as you paste it, so it isn't left on screen.
+    key = prompt("  key> ", is_password=True).strip()
+    if not key:
+        raise SystemExit("No key entered — run nova again when you have one.")
+
+    save_api_key(key)                    # remember it for next time
+    os.environ["GEMINI_API_KEY"] = key   # ...and use it right now, this session
+    console.print("✓ Saved to ~/.nova/credentials. You're all set.\n", style="green")
+
+
 def main():
-    # Fail fast with a friendly message if the API key isn't set, instead of a
-    # confusing crash later when we first try to call Gemini.
-    check_config()
+    # Make sure we have an API key. On first run this prompts for one and saves
+    # it, so the user is never dropped into a confusing crash later.
+    ensure_api_key()
 
     # Our OWN memory of the current folder. We track it ourselves because each
     # command runs in a fresh helper that forgets it.

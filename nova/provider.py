@@ -17,7 +17,7 @@ import platform
 from google import genai
 from google.genai import types
 
-from .config import API_KEY, MODEL
+from .config import get_api_key, MODEL
 
 # The SDK logs a harmless "automatic function calling (AFC)" notice on every
 # call. Silence it so our output stays clean.
@@ -37,7 +37,9 @@ def get_client():
     """
     global _client
     if _client is None:
-        _client = genai.Client(api_key=API_KEY)
+        # get_api_key() is read HERE (not at import) so a key entered during
+        # first-run setup is picked up before the first AI call.
+        _client = genai.Client(api_key=get_api_key())
     return _client
 
 

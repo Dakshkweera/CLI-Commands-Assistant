@@ -25,3 +25,32 @@ def save_last_folder(folder):
     except OSError:
         # If saving fails (permissions, etc.), it's not worth crashing over.
         pass
+
+
+# Where we remember the user's Gemini API key so they enter it only once.
+# A file inside a hidden ~/.nova folder (like ~/.aws/credentials). Plain text —
+# fine for a personal key on your own machine (your user profile is private).
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".nova")
+KEY_FILE = os.path.join(KEY_DIR, "credentials")
+
+
+def load_api_key():
+    """Return the saved API key, or None if the user hasn't set one yet."""
+    try:
+        with open(KEY_FILE) as f:
+            # .strip() drops any stray newline/spaces; "" becomes None below.
+            return f.read().strip() or None
+    except OSError:
+        # No file yet (first run) — that's expected, not an error.
+        return None
+
+
+def save_api_key(key):
+    """Save the API key to ~/.nova/credentials, creating the folder if needed."""
+    try:
+        # exist_ok=True = don't error if the folder is already there (mkdir -p).
+        os.makedirs(KEY_DIR, exist_ok=True)
+        with open(KEY_FILE, "w") as f:
+            f.write(key.strip())
+    except OSError:
+        pass
