@@ -1,4 +1,4 @@
-# Product Specification — `ask`
+# Product Specification — `nova`
 
 ## 1. The problem
 
@@ -10,11 +10,11 @@ figure out the terminal — is the pain.
 
 ## 2. The solution (one sentence)
 
-> You describe the task in plain English; `ask` writes the command and shows it,
+> You describe the task in plain English; `nova` writes the command and shows it,
 > you run it, and if it fails, `/debug` helps you fix it — all without leaving
 > the terminal.
 
-The user reads the real command output themselves. `ask` does not interpret or
+The user reads the real command output themselves. `nova` does not interpret or
 explain results; its job is to help you reach a **working command**.
 
 ## 3. Who it's for
@@ -41,19 +41,22 @@ Default behaviour is a **normal shell**. The AI only wakes up on a `/` command.
 | You type          | Treated as   | What happens                                               |
 |-------------------|--------------|------------------------------------------------------------|
 | `<any command>`   | raw command  | run as-is, record the result (no AI, no risk score)        |
+| `cd <path>`       | folder change| intercepted — updates the tracked folder (no subprocess)   |
 | `/ask <english>`  | request      | AI generates a command → show it + risk score → Enter runs |
 | `/debug [text]`   | fix request  | AI uses last command + error + history → show fix → Enter runs |
-| `/start`          | control      | begin a session with fresh, empty memory                   |
-| `/exit`           | control      | end the session; memory is discarded                       |
+| `/exit`           | control      | end the session; memory is discarded, exit folder is saved |
 
 Only `/ask` and `/debug` call the API. Everything else is free.
+
+The session **auto-starts** when you launch `nova` (no `/start` command) and
+begins in the terminal's current folder.
 
 ## 6. The two AI flows
 
 ### `/ask` — generate a command
 ```
 you: /ask list files bigger than 100MB
-ask: Get-ChildItem -Recurse | Where-Object { $_.Length -gt 100MB }
+nova: Get-ChildItem -Recurse | Where-Object { $_.Length -gt 100MB }
      Risk: 🟢 Low (read-only)
      [Enter to run]
 ```
@@ -62,11 +65,11 @@ ask: Get-ChildItem -Recurse | Where-Object { $_.Length -gt 100MB }
 ```
 you: npm run buld          (typo — fails: "Unknown command: buld")
 you: /debug
-ask: npm run build
+nova: npm run build
      Risk: 🟢 Low
      [Enter to run]
 ```
-`ask` grabs the failed command + its error + recent history from memory
+`nova` grabs the failed command + its error + recent history from memory
 **automatically** — no copy-paste. Add your own hint with `/debug it's a Node
 project`.
 

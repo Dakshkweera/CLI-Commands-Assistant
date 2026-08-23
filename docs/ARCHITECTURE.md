@@ -1,4 +1,4 @@
-# Architecture — `ask`
+# Architecture — `nova`
 
 ## Guiding principle: separation of concerns
 
@@ -17,6 +17,7 @@ responsibility.
 | **Memory** | Store every turn; build the small "note" of context for the AI | You change how much history to keep/send |
 | **AI / Provider** | Talk to Gemini: generate a command, generate a fix, assign a risk score | You switch AI provider |
 | **Executor** | Run a command, capture its output + exit code | You change how/where commands run |
+| **Storage** | On exit, write the folder we ended in (for the shell wrapper) | You change how folder hand-off works |
 | **Config** | Hold the API key, model name, and settings (history size, etc.) | You change how settings load |
 
 ### Dependency direction
@@ -57,11 +58,13 @@ Memory is just an ordered list of Turns for the current session.
 
 ## The Memory box in detail
 
-Memory has exactly **two jobs** (two functions):
+Memory has three small jobs (three methods on the `Memory` class):
 
 - `record(command, output, error, exit_code)` — save a Turn. Called after
   **every** command, raw or AI-generated.
-- `build_note(task)` — build the small context "note" to send the AI.
+- `format_recent(n=5)` — build the small context "note" (a short text summary of
+  the last *n* turns) to send the AI.
+- `last_failure()` — find the most recent failed Turn, used by `/debug`.
 
 ### What is a "note"?
 
@@ -84,16 +87,21 @@ Recording is free (it's just RAM). Sending costs tokens, so notes stay small:
 All of this lives **inside the Memory box**. The rest of the app just asks for a
 note; it never builds one itself. Change the rules → change only this box.
 
-## Memory lifecycle (like a terminal tab — with one exception)
+> **Note on the two AI flows:** both `/ask` and `/debug` call **one** Provider
+> function — `generate_command(request, history)`. `/debug` simply builds its
+> `request` from the last failed command + its error before calling it. One
+> function, one JSON shape, used by both.
+
+## Memory lifecycle (like a terminal tab)
 
 - The **history** lives **only in RAM**, only for the session. Not written to disk.
-- **`/start`** → fresh, empty history; folder set to the launch folder (or the
-  last saved folder — see State handling below).
+- Launching `nova` **auto-starts** the session with fresh, empty history (there is
+  no `/start` command). It begins in the terminal's **current** folder.
 - Every turn (raw or AI) is recorded automatically.
 - **`/exit`** → the session ends, the history reference is released, Python frees
   it (reference counting), and the process exits. The history is gone.
-- **Exception:** the **current folder is persisted** on exit (one line to a small
-  file) and restored on the next start. See "State handling" below.
+- **Exception:** the folder you ended in is written to a small file so the shell
+  wrapper can move the **real terminal** there after exit. See "State handling".
 - Capacity is effectively unlimited in RAM (text is tiny). The real limit is how
   much we *send* to the AI — which the context rules above control.
 
@@ -119,14 +127,31 @@ command history is not.
    parameter (`subprocess.run(cmd, cwd=current_folder)` — same as Node's
    `exec(cmd, { cwd })`).
 3. `cd` is **intercepted**: no helper is spawned; we just update the variable.
-4. The prompt is built from the variable (`ask C:\project\sub>`), so it always
+4. The prompt is built from the variable (`nova C:\project\sub>`), so it always
    shows the right folder.
-5. On `/exit`, we persist **only** the folder (one line to a small file) and
-   restore it on the next `/start`.
+5. On `/exit`, we write **only** the folder (one line to a small file,
+   `~/.nova_last_folder`). A small **PowerShell wrapper function** reads that file
+   after `nova` exits and `cd`s the **real terminal** into it — so you "land" in
+   the folder you navigated to. (A program can't change its parent shell's
+   folder itself; the wrapper does it from the outside.)
 
-This lives in the **Executor / Memory** boxes. Fuller state (environment
-variables, etc.) would need a single long-lived shell (Solution A) — deferred as
-a later "real tool" upgrade. For now, only the folder is handled.
+The tracking lives in the **CLI + Storage** boxes; the wrapper lives in your
+PowerShell profile. Fuller state (environment variables, etc.) would need a
+single long-lived shell (Solution A) — deferred as a later "real tool" upgrade.
+For now, only the folder is handled.
+
+### Why PowerShell only
+Commands run through `powershell -Command`, and the folder-follow wrapper is a
+PowerShell function. So `nova` targets **Windows + PowerShell**. cmd and Git Bash
+can run the core tool (`python -m nova`) but get no `nova` shortcut and no
+folder-follow; Mac/Linux would need the executor + commands adapted.
+
+## Packaging — run from any folder
+`python -m nova` only works when Python can find the `nova` package. We make it
+findable everywhere by installing the project as an **editable package**
+(`pip install -e .`, described by `pyproject.toml`) — the same idea as
+`npm link`. After that, the wrapper calls the venv's Python by absolute path, so
+`nova` works from any folder without activating the venv first.
 
 ## The Risk Score
 
@@ -146,18 +171,19 @@ keeps it simple and cheap.
 
 | Concern | Choice | Node.js equivalent (for reference) |
 |---------|--------|-------------------------------------|
-| Language | Python 3.13 (sync) | Node.js |
+| Language | Python 3.10+ (developed on 3.13, sync) | Node.js |
 | Install packages | `pip` into a **venv** | `npm` into `node_modules` |
-| Dependency list | `requirements.txt` | `package.json` |
+| Package/build config | `pyproject.toml` (`pip install -e .`) | `package.json` (`npm link`) |
 | Gemini SDK | `google-genai` | `@google/genai` |
+| Model | `gemini-3.6-flash` | — |
 | Load `.env` secrets | `python-dotenv` | `dotenv` |
 | Terminal colors | `rich` | `chalk` |
-| Run commands | `subprocess` (stdlib) | `child_process` |
+| Run commands | `subprocess` → PowerShell (stdlib) | `child_process` |
 | Read input | `input()` (stdlib) | `readline` |
 
 ### Why no web framework and no async
 
-- **No FastAPI/Express:** `ask` is a **CLI**, not a web server. There are no HTTP
+- **No FastAPI/Express:** `nova` is a **CLI**, not a web server. There are no HTTP
   requests to handle, so no web framework is needed.
 - **No async:** the tool does one thing at a time (read → wait for AI → run →
   repeat) for a single user. Async only helps with *many concurrent* operations.

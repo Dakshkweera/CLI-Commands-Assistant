@@ -1,5 +1,5 @@
 """
-ask/provider.py
+nova/provider.py
 
 The Provider box. Its one job: talk to Gemini.
 

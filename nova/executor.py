@@ -1,5 +1,5 @@
 """
-ask/executor.py
+nova/executor.py
 
 The Executor box. Its one job: RUN a shell command and report back what
 happened — the output, any error, and whether it succeeded.

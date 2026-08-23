@@ -1,5 +1,5 @@
 """
-ask/memory.py
+nova/memory.py
 
 The Memory box. It remembers what happened during this session: every command,
 its output, its error, and whether it passed.

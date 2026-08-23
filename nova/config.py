@@ -1,5 +1,5 @@
 """
-ask/config.py
+nova/config.py
 
 The Config box. Its job: load all our settings in ONE place — the API key and
 the model name — so the rest of the app reads them from here instead of

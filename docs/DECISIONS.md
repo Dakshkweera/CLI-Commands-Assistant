@@ -1,4 +1,4 @@
-# Decision Log — `ask`
+# Decision Log — `nova`
 
 The single source of truth. Every decision we've locked in, so the design stays
 consistent as we build.
@@ -6,7 +6,7 @@ consistent as we build.
 ## What it is
 | # | Decision |
 |---|----------|
-| D1 | A self-correcting terminal command assistant (working name `ask`) |
+| D1 | A self-correcting terminal command assistant (working name `nova`) |
 | D2 | Solves: you know *what* you want in the terminal but not the *command*; and cryptic errors leave you stuck |
 | D3 | For anyone at a terminal — beginner or expert, daily or rare user |
 | D4 | You read command output yourself — the tool does **not** explain results in English |
@@ -19,7 +19,7 @@ consistent as we build.
 | D7 | Default: anything you type runs as a **raw command** |
 | D8 | `/ask <english>` **generates and shows** a command; **you press Enter to run** (or not) |
 | D9 | `/debug [optional text]` writes a fix and **shows it**; you press Enter to run; optional text adds context if the AI guesses wrong |
-| D10 | `/start` begins a session; `/exit` ends it |
+| D10 | The session **auto-starts** when you launch `nova` (no `/start`); `/exit` ends it |
 | D11 | Rule: `/` = call the AI; no prefix = run literally |
 
 ## How commands run & get fixed
@@ -57,9 +57,11 @@ worth tracking and keeping.
 | D44 | Each helper process is fresh and stateless, so the OS won't remember the folder between commands — **our program tracks the current folder itself** (in a variable) |
 | D45 | Normal commands run in a fresh helper, told where to start via the `cwd` ("current working directory") parameter, set from our tracked folder |
 | D46 | `cd` is intercepted: we **don't** spawn a helper, we just **update our folder variable** |
-| D47 | The prompt shows the tracked folder (e.g. `ask C:\project\sub>`), updated automatically because it's built from the variable |
-| D48 | On `/exit`, we discard the history but **persist only the last folder** (one line to a small file); the next `/start` resumes in that folder — meaningful state is kept, disposable actions are dropped |
-| D49 | Keeping one shell alive for full state (env vars, etc.) is a later "real tool" upgrade; for now only the **folder** is tracked/persisted |
+| D47 | The prompt shows the tracked folder (e.g. `nova C:\project\sub>`), updated automatically because it's built from the variable |
+| D48 | Every launch starts in the terminal's **current** folder. On `/exit`, we discard the history but **write the folder we ended in** (one line to `~/.nova_last_folder`) so a **PowerShell wrapper** can `cd` the **real terminal** there — you "land" in the folder you navigated to (a program can't move its parent shell itself) |
+| D49 | Keeping one shell alive for full state (env vars, etc.) is a later "real tool" upgrade; for now only the **folder** is tracked |
+| D50 | Distributed via a **`pip`-installable package** (`pyproject.toml` + `pip install -e .`) so `python -m nova` runs from any folder; the wrapper calls the venv's Python by absolute path |
+| D51 | Targets **PowerShell** specifically: commands run via `powershell -Command`, and the `nova` shortcut is a PowerShell profile function (cmd/Git Bash/Mac/Linux not supported without changes) |
 
 ## Context (the "note" sent to the AI)
 | # | Decision |
@@ -69,15 +71,15 @@ worth tracking and keeping.
 | D22 | **Trim long output** (~30 lines) before it bloats a note |
 | D23 | `/ask` note = environment + your request (little/no history) |
 | D24 | `/debug` note = environment + failed command + error + last few commands |
-| D25 | All note logic lives in **one Memory box** with `record()` and `build_note()` |
+| D25 | All note logic lives in **one Memory box**: `record()` saves a turn, `format_recent()` builds the note, `last_failure()` finds the turn to fix |
 
 ## Environment & tech
 | # | Decision |
 |---|----------|
 | D26 | Targets **Windows + PowerShell first** (not portable yet) |
 | D27 | The AI is always told the **environment** (OS/shell) so commands work here |
-| D28 | Uses the **Gemini API**, model **Flash** (free tier — good for a student) |
-| D40 | Language is **Python 3.13** (chosen to learn it for the AI-engineer path) |
+| D28 | Uses the **Gemini API**, model **`gemini-3.6-flash`** (free tier — good for a student) |
+| D40 | Language is **Python** (3.10+, developed on 3.13; chosen to learn it for the AI-engineer path) |
 | D41 | SDK is **`google-genai`**; secrets via **`python-dotenv`**; output via **`rich`**; commands via **`subprocess`** |
 | D42 | **Simple sync Python** — no FastAPI (it's a CLI, not a web server) and no async (single-user, sequential) |
 
@@ -104,20 +106,27 @@ worth tracking and keeping.
 - **Auto-retry loop → `/debug`:** early idea was a silent loop that retries until
   it passes; final model is **user-triggered `/debug`, one attempt per press, no
   loop.**
-- **Save nothing → save only the folder:** early idea (D15) was pure "terminal
-  tab" — nothing kept on exit. Refined: the **history** is still discarded, but
-  the **current folder is persisted** so navigation isn't wasted (D48). Not all
-  state is equal — the folder is worth keeping; the command history isn't.
+- **Save nothing → follow the folder out:** early idea (D15) was pure "terminal
+  tab" — nothing kept on exit. Refined: the **history** is still discarded, but on
+  exit we write the folder we ended in so a shell wrapper moves the **real
+  terminal** there (D48). We do **not** resume it inside `nova` — each launch
+  starts in the terminal's current folder. Not all state is equal: the folder is
+  worth handing back to the shell; the command history isn't.
+- **Two AI functions → one:** early plan had separate "generate" and "fix"
+  paths. Final: a single `generate_command(request, history)` serves both; `/debug`
+  just builds a "this failed, fix it" request first.
+- **`gemini-2.5-flash` → `gemini-3.6-flash`:** a 404 ("not available to new keys")
+  after a key regeneration forced the model bump — a one-line change in Config,
+  which is exactly why settings live in one box (D41/D29).
 
-## Still open (to decide before/while building)
-1. **`/start` vs auto-start** — does launching `ask` start the session
-   automatically, or must you type `/start`? (Leaning: explicit `/start`.)
-2. **Risk-scoring mechanism** — does the AI assign the risk level itself, or does
-   a rule-list in our code, or both? (Leaning: AI assigns + a safety rule-list as
-   backup.)
-3. **Exact tunables** — history window (default 5), output trim size (default
-   ~30 lines): confirm the starting numbers.
-4. **Which folder wins on relaunch** — if you launch `ask` from a different
-   folder than the saved one, does the **saved** folder win (resume) or the
-   **launch** folder win? (Leaning: launch folder wins if you start somewhere
-   explicitly, else resume the saved one.)
+## Resolved (were open during design, now settled by the code)
+1. **`/start` vs auto-start → auto-start.** Launching `nova` starts the session
+   automatically; there is no `/start` command (D10).
+2. **Risk-scoring mechanism → the AI assigns it.** The model returns the level in
+   its JSON; there is no separate rule-list yet (D36/D37). A backup rule-list
+   stays a possible later addition.
+3. **Exact tunables → confirmed.** History window `HISTORY_SIZE = 5`, output trim
+   `MAX_OUTPUT_LINES = 30` (both in `memory.py`, easy to change).
+4. **Which folder wins → the launch folder, always.** `nova` always starts in the
+   terminal's current folder; the saved file is only for the wrapper to move the
+   parent shell on exit, not to resume inside `nova` (D48).
