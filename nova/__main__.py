@@ -191,20 +191,24 @@ def _split_leading_cd(command):
 def _resolve_cd(current_folder, cd_command):
     """Work out the folder a `cd` command points to.
 
-    Returns (folder, ok): the new folder and whether it exists. On failure it
-    prints an error and returns the folder unchanged (ok=False).
+    Returns (folder, ok, error): the new folder, whether it exists, and an error
+    message (or None). Does NOT print — the caller prints/records so a failed cd
+    can be remembered for /debug.
     """
     # Everything after "cd" is the target path; strip surrounding quotes so a
     # spaced path like cd "Road to AI Engineer" resolves to the bare path.
     target = cd_command[2:].strip().strip("\"'")
+    # Expand a leading ~ to the user's home folder (C:\Users\You). os.path.join
+    # doesn't know about ~, so without this it'd look for a folder named "~".
+    target = os.path.expanduser(target)
     if not target:                        # bare "cd" — nowhere to go, no-op
-        return current_folder, True
+        return current_folder, True, None
     # Build an absolute path relative to where we are now (handles "..", etc.).
+    # If target is already absolute (e.g. an expanded ~), join returns it as-is.
     new_folder = os.path.abspath(os.path.join(current_folder, target))
     if os.path.isdir(new_folder):
-        return new_folder, True
-    print(f"cd: no such folder: {target}")
-    return current_folder, False
+        return new_folder, True, None
+    return current_folder, False, f"cd: no such folder: {target}"
 
 
 def run_cd_command(command, memory, current_folder):
@@ -216,9 +220,12 @@ def run_cd_command(command, memory, current_folder):
     a folder change is tracked no matter who wrote it.
     """
     cd_part, rest = _split_leading_cd(command)
-    new_folder, ok = _resolve_cd(current_folder, cd_part)
+    new_folder, ok, error = _resolve_cd(current_folder, cd_part)
     if not ok:
-        # cd failed — don't run the rest in the wrong folder.
+        # cd failed: show the error AND record it (exit code 1) so /debug can
+        # look back and offer a fix. Don't run the rest in the wrong folder.
+        print(error)
+        memory.record(command, "", error, 1)
         return current_folder
     if rest:
         # Run the remaining command(s) in the folder we just moved to.

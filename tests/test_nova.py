@@ -8,8 +8,11 @@ Each test is one "given this input, I expect this result". pytest finds every
 function named test_* and runs it; `assert` is the check (fails if it's False).
 """
 
+import os
+
 from nova.__main__ import (
     _split_leading_cd,
+    _resolve_cd,
     _looks_like_network_error,
     _looks_like_bad_key,
     _looks_like_quota,
@@ -39,6 +42,22 @@ def test_semicolon_inside_quotes_is_not_split():
 def test_double_ampersand_also_splits():
     # `&&` works as a separator too, not just `;`.
     assert _split_leading_cd('cd Docs && dir') == ('cd Docs', 'dir')
+
+
+# ---- cd resolution ---------------------------------------------------------
+
+def test_cd_tilde_expands_to_home():
+    # `cd ~` must resolve to the user's home folder, not a folder named "~".
+    folder, ok, error = _resolve_cd("C:\\", "cd ~")
+    assert ok is True
+    assert folder == os.path.abspath(os.path.expanduser("~"))
+
+
+def test_cd_missing_folder_reports_error():
+    # A folder that doesn't exist → ok is False and a clear error message.
+    folder, ok, error = _resolve_cd(os.path.expanduser("~"), "cd no-such-folder-xyz")
+    assert ok is False
+    assert "no such folder" in error
 
 
 # ---- Error classification --------------------------------------------------

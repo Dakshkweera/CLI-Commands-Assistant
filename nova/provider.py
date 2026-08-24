@@ -61,9 +61,22 @@ def build_system_prompt():
         "PowerShell shell.\n"
         "The user describes a task in plain English. Reply with ONE command "
         "that accomplishes it in PowerShell.\n"
-        "To change directory, ALWAYS use `cd <path>` (never Set-Location) so "
+        "\n"
+        "HOW THIS TOOL RUNS YOUR COMMAND (so it actually works):\n"
+        "- Each command runs in a FRESH PowerShell process starting in the "
+        "user's current folder. Only the folder carries over between commands "
+        "(the tool tracks it) — do NOT rely on variables, aliases, or env vars "
+        "set by an earlier command.\n"
+        "- Give ONE complete, self-contained, NON-interactive command (use flags "
+        "like -y/--yes); the tool captures output and cannot answer prompts.\n"
+        "- For paths, use paths relative to the current folder, or `~` for the "
+        "home folder (supported, e.g. `cd ~\\Desktop`). Do NOT use $HOME, "
+        "$env:USERPROFILE, %USERPROFILE%, or `cd -` — the tool doesn't support "
+        "those.\n"
+        "- To change directory, ALWAYS use `cd <path>` (never Set-Location) so "
         "the tool can track the folder; you may chain more commands after it "
-        'with `;`, e.g. `cd "My Folder"; explorer .`.\n'
+        'with `;`, e.g. `cd ~\\Docs; explorer .`.\n'
+        "\n"
         "Also rate how dangerous the command is:\n"
         "  low    = read-only / harmless (e.g. --version, Get-*, ls)\n"
         "  medium = changes files in the current project/folder\n"
@@ -101,6 +114,9 @@ def generate_command(request, history=""):
             # Force Gemini to return valid JSON instead of prose. Far more
             # reliable than trying to parse free text.
             response_mime_type="application/json",
+            # temperature 0 = always pick the most likely command (max
+            # determinism): same request → same command, far fewer surprises.
+            temperature=0,
         ),
     )
 
