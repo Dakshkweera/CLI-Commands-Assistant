@@ -83,6 +83,20 @@ pip install git+https://github.com/Dakshkweera/Nova.git
 
 That installs nova + its dependencies and creates a `nova` command.
 
+## Updating to a newer version
+
+nova is versioned in `pyproject.toml`. To get the latest release:
+
+```powershell
+pip install --upgrade git+https://github.com/Dakshkweera/Nova.git
+```
+
+> `--upgrade` pulls a new version when the version number has changed. If you're
+> ever on the same version number but want to force the latest code, use
+> `--force-reinstall` instead of `--upgrade`. (pipx users: `pipx reinstall nova`.)
+
+Check your installed version any time with `/version` inside nova.
+
 ## First run — your API key
 
 Just run it:
